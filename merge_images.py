@@ -12,12 +12,13 @@ mode_concat=""
 r0=None
 r1=None
 window = None
-maxwidth, maxheight = 1200, 500
+maxwidth, maxheight = 400, 500
 main_img=None
 main_img_width=0
 main_img_height=1
 
 img1=None
+original_img1=None
 img2=None
 img2_non_cropped=None
 original_img2=None
@@ -27,7 +28,10 @@ scale_field=None
 #rot_field=None
 offx_field=None
 offy_field=None
+cropr_field=None
 result_merged=None
+
+size_field=None
     
 
 
@@ -39,6 +43,11 @@ def close_project():
 def save():
     global main_img
     global window
+    global scale_field
+    #global rot_field
+    global offx_field
+    global offy_field
+    global cropr_field
     if main_img is not None:
         #print('save')
         tmpdial=QFileDialog()
@@ -53,9 +62,42 @@ def save():
             os.remove(filename)
         if filename:
             #print(filename)
+            tmp_metadata={}
+            tmp_metadata["crop_1st"]=cropr_field.text()
+            tmp_metadata["scale"]=scale_field.text()
+            tmp_metadata["offset x"]=offx_field.text()
+            tmp_metadata["offset y"]=offy_field.text()
             cv2.imwrite(filename, main_img)
-        cv2.destroyAllWindows()
-        close_project()
+            ext = '.'+ filename.split('.')[-1:][0]
+            filefinal = filename.replace(ext,'')
+            filefinal = filename + '_params_transform.txt'
+            f = open(filefinal, "w")
+            rows=[]
+            for key, value in tmp_metadata.items():
+                rows.append(key+"\t"+value)
+            f.write("\n".join(rows))
+            f.close()
+        #cv2.destroyAllWindows()
+        #close_project()
+
+def resize():
+    global maxwidth
+    global size_field
+    global main_img
+    global img1
+    maxwidth=int(size_field.text())
+    merged_line=main_img.copy()
+    
+    
+    #cv2.line(merged_line, (xline1, yline1), (xline2, yline2), (0, 0, 255), 10)
+    xline1=img1.shape[1]
+    xline2=img1.shape[1]
+    yline1=0
+    yline2=img1.shape[0]
+    print((xline1, yline1))
+    print((xline2, yline2))
+    cv2.line(merged_line, (xline1, yline1), (xline2, yline2), (0, 0, 255), 10)
+    display_simple(merged_line)
 
 def reconcat():
     global img1
@@ -79,9 +121,11 @@ def prepare(imgs_path):
     global main_img_height
     global img1
     global img2
+    global original_img1
     global original_img2
     global img2_non_cropped
     global mode_concat
+    
     
     tmp=None
     imgs=[]
@@ -141,6 +185,7 @@ def prepare(imgs_path):
       
         if i==0:
             img1=tmp1
+            original_img1=img1.copy()
         else:
             img2=tmp1
             
@@ -202,7 +247,7 @@ def rescale(image, factor):
     
 def offsetx_image(image, offset_w):
     offset_w=int(offset_w)
-    returned=None
+    returned=image
     print(offset_w)
     if offset_w<0 and abs(offset_w)<image.shape[1] :
         returned=image[0:image.shape[0], abs(offset_w):image.shape[1]]   
@@ -220,7 +265,7 @@ def offsetx_image(image, offset_w):
     
 def offsety_image(image, offset_h):
     offset_h=int(offset_h)
-    returned=None
+    returned=image
     print(offset_h)
     if offset_h<0 and abs(offset_h)<image.shape[0] :
         returned=image[abs(offset_h):image.shape[0], 0:image.shape[1]]   
@@ -235,13 +280,26 @@ def offsety_image(image, offset_h):
     print("p w")
     print(returned.shape[1])
     return returned
+    
+def crop_right_bottom(image, offset):
+    offset=int(offset)
+    returned=image
+    if mode_concat=="v" and  offset<image.shape[0] :
+        returned=image[0:(image.shape[0]-offset), 0:image.shape[1]]  
+    elif mode_concat=="h" and  offset<image.shape[0]:
+        returned=image[0:image.shape[0], 0:(image.shape[1]-offset)]
+    return returned
+    
 
 def reset():
+    global img1
+    global original_img1
     global img2
     global original_img2
     global img2_non_cropped
     global main_img
     
+    img1=original_img1
     img2_non_cropped=original_img2
     img2=original_img2
     reconcat()
@@ -252,12 +310,16 @@ def transform():
     #global rot_field
     global offx_field
     global offy_field
+    global cropr_field
+    global img1
     global img2
+    global original_img1
     global original_img2
     global img2_non_cropped
     global main_img
     print("transfo")
     scale=scale_field.text()
+    crop_r=cropr_field.text()
     #rotation=rot_field.text()
     off_x=offx_field.text()
     off_y=offy_field.text()
@@ -267,6 +329,13 @@ def transform():
         #img2_non_cropped=img2.copy()
     else:
         img2=original_img2
+        
+    if int(crop_r)!=0:
+        #Fdisplay_simple(original_img1)
+        #cv2.waitKey(0)
+        img1=crop_right_bottom(original_img1, crop_r)
+        #display_simple(img1)
+        #cv2.waitKey(0)
     if int(off_x)!=0:
         img2=offsetx_image(img2, off_x)
         img2_non_cropped=img2.copy()    
@@ -316,9 +385,12 @@ def start():
     global window
     global app
     global scale_field
+    global size_field
     #global rot_field
     global offx_field
     global offy_field
+    global cropr_field
+    global maxwidth
     
     app = QApplication([])
     window = QWidget()
@@ -328,6 +400,18 @@ def start():
     layout.addWidget(but_img)
     but_img.clicked.connect(choose_img)
     
+    lab_size=QLabel(window)
+    lab_size.setText("Resize")
+    layout.addWidget(lab_size)
+    
+    size_field=QLineEdit(window)
+    size_field.setText(str(maxwidth))
+    layout.addWidget(size_field)
+    
+    but_resize=QPushButton('Resize')
+    layout.addWidget(but_resize)
+    but_resize.clicked.connect(resize)
+    
     mode_group=QButtonGroup(window) # Number group
     r0=QRadioButton(text="Horizontal")
     r0.setChecked(True)
@@ -336,6 +420,14 @@ def start():
     mode_group.addButton(r1)
     layout.addWidget(r0)
     layout.addWidget(r1)
+    
+    lab_cropr=QLabel(window)
+    lab_cropr.setText("Crop right/bottom 1st part")
+    layout.addWidget(lab_cropr)
+    
+    cropr_field=QLineEdit(window)
+    cropr_field.setText("0")
+    layout.addWidget(cropr_field)
     
     lab_scale=QLabel(window)
     lab_scale.setText("Scale 2nd part")
